@@ -10,11 +10,11 @@ samples from a given probabiliy density function.
 """
 function sample_withoutOOP(pdf::Function, dom::Tuple{Float64,Float64}, N::Int64)::Vector{Float64}
     # scale pdf onto [-1,1]
-    map(t) = (dom[2]-dom[1]).*(t+1)./2 + dom[1]
-    f(x) = pdf(map(x))
+    f(t) = pdf(scale_pdf(dom, t))
 
     Y = simple_constructor(f)
     out = sum_unit_interval(Y)
+
     Y = Y./out
 
     #cumulative density function
@@ -23,26 +23,29 @@ function sample_withoutOOP(pdf::Function, dom::Tuple{Float64,Float64}, N::Int64)
 
     v = simple_chebpolyval(cdf)
     tol = 100*eps()
-
     idx1 = findfirst(v_ -> v_ > tol, v) 
     idx2 = findlast(v_ -> v_ < 1-tol, v) 
 
     k = length(v)-1
-    x =  transpose(sin.(pi*(-k:2:k)/(2*k)))
-    
-    dnew = (dom[2] - dom[1]).*([x[idx1] x[idx2]] .+ 1)./2 .+ dom[1]
+    x = sin.(pi*(-k:2:k)/(2*k))'
 
-    #scale pdf onto [-1,1];
-    map_(t) = (dnew[2]-dnew[1]).*(t.+1)./2 .+ dnew[1]
-    f_(x) = pdf(map_(x))
+
+    dnew = Tuple(scale_pdf(dom, [x[idx1], x[idx2]]))
+
+    # scale pdf onto [-1,1];
+    f_(t) = pdf(scale_pdf(dnew, t))
 
     Y = simple_constructor(f_)
     out = sum_unit_interval(Y)
     Y = Y./out
 
-    x = map_(generate_random_samples( Y, N ) )
+    x = scale_pdf(dnew, (generate_random_samples(Y, N)))
 
     return x
+end
+    
+function scale_pdf(dom::Tuple{Float64, Float64}, t)
+    return ((dom[2]-dom[1]).*(t.+1))./2 .+ dom[1]
 end
 
 
@@ -59,10 +62,10 @@ function generate_random_samples(Y::Vector{Float64}, N::Int64)::Vector{Float64}
     a = -ones(N)
     b =  ones(N)
 
-    while norm(b-a, Inf) > eps()
+    while norm(b-a, Inf) > 1e-14
         vals = Clenshaw_evaluate(c,(a+b)/2)
-        I1 = ((vals-r) .<= -eps())
-        I2 = ((vals-r) .>= eps())
+        I1 = ((vals-r) .<= -1e-14)
+        I2 = ((vals-r) .>= 1e-14)
         I3 = .~I1 .& .~I2
         a = I1.*(a+b)/2 + I2.*a + I3.*(a+b)/2
         b = I1.*b + I2.*(a+b)/2 + I3.*(a+b)/2
@@ -104,7 +107,7 @@ function simple_constructor(f::Function)::Array{Float64,1}
 
         #Laurent fold in columns.
         Y = real(fft([vals[end:-1:1, :]; vals[2:end-1,:]])/(2*length(x)-2))
-        idx = findlast(y -> y > 10*log2(k)*eps(), Y[1:k]) 
+        idx = findlast(y -> y > 10*log2(k)*eps(), abs.(Y[1:k]))
 
         if idx < k-3
             Y = Y[1:idx]
@@ -143,8 +146,7 @@ function sum_unit_interval(c)::Float64
     if n == 1 return c*2 end
 
     c[2:2:end] .= 0
-    
-    return [2 0 2/(1 .- ((2:n-1)).^2)]*c
+    return [2; 0; 2 ./(1 .- ((2:n-1)).^2)]'*c
 end
 
 function simple_chebpolyval(c::Array{Float64,1})::Array{Float64}
