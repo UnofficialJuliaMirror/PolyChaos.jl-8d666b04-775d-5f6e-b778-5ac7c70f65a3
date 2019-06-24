@@ -46,7 +46,6 @@ function orthosparse(y::Array{Float64,1},x::Array{Float64,1},name::String,p_max:
         #A_plus = A_plus[R2_array .< ε_backward]
         #A =  Array{Int64,1}()
         #A = A_plus
-        #display(A_plus)
         ####################### CHECK TERMINATION CRITERION ####################
         if length(A) != 0
 
@@ -82,16 +81,12 @@ function orthosparseMulti(y::Array{Float64,1},x::Matrix{Float64},name::String,p_
     #A_plus = Vector{Vector{Int64}}()
     #push!(A, vec(zeros(1,numu)))
     #push!(A_plus, vec(zeros(1,numu)))
-    #display(A)
     A = vcat(A,zeros(Int64,1,numu))
     #A_plus = vcat(A,zeros(Int64,1,numu))
     #A_minus = vcat(A,zeros(Int64,1,numu))
 
     for i in p_index
         i >= p_max && break
-        #print("\n ##### \n")
-        #display(A)
-        #print("\n ##### \n")
         #if size(A)[1] == 0
         #    A = vcat(A,zeros(Int64,1,numu))
         #end
