@@ -6,60 +6,73 @@ function regress(M,y)
 end
 
 function lack_of_fit(y::Array{Float64,1},ymod::Array{Float64,1})
-    sum(δy^2 for δy in y - ymod) / sum(δy^2 for δy in y .- mean(y))
+    lof = sum(δy^2 for δy in y - ymod) / sum(δy^2 for δy in y .- mean(y))
+    lof > 1 ? 1 : lof
 end
 
-function orthosparse(y::Array{Float64,1},x::Array{Float64,1},name::String,p_max::Int64;ε_forward::Float64,ε_backward::Float64,accuracy::Float64)
+function orthosparse(y::Vector{Float64},x::Vector{Float64},name::String,p_max::Int64;ε_forward::Float64,ε_backward::Float64,accuracy::Float64)
     p_index = 1:p_max
+    final_index = Int64[]
     op = OrthoPoly(name,p_max)
     y_bar = mean(y)
-    A, A_plus = Array{Int64,1}(), Array{Int64,1}()
-    push!(A,0); push!(A_plus,0)
+    A, A_plus = [0], [0]
+    Φ = evaluate(A,x,op)
+    a_hat, ymod = regress(Φ,y)
+    R2 = 1 - lack_of_fit(y,ymod)
     for i in p_index
         i >= p_max && break
-        ############################# FORWARD STEP #############################
-        push!(A,i)
-        Φ1 = evaluate(vec(A),x,op)
-        a_tmp, ymod = Array{Float64,1}(),Array{Float64,1}()
-        a_hat, ymod = regress(Φ1,y)
-        R2 = 1 - lack_of_fit(y,ymod)
-        #R2 >= ε_forward ? push!(A_plus,i) : nothing
-        if R2 >= ε_forward
-            push!(A_plus,i)
-        end
-        #R2 >= ε_forward ? A_plus = filter(x -> x != i, A) : nothing
-        ########################### Backward STEP ##############################
-        if A_plus[end] == i
-            #Φ = evaluate(filter(x -> x ≠ b, A_plus),x,op)
-            Φ2 = evaluate(i,x,op)
-            a_tmp, ymd = Array{Float64,1}(),Array{Float64,1}()
-            a_tmp, ymd = regress(Φ2,y)
-            r2::Float64 = 0.0
-            r2 = 1 - lack_of_fit(y,ymd)
-            if r2 <= ε_backward
-                #A_plus = filter(x -> x != i, A)
-                filter!(x -> x != i, A)
-                #pop!(A_plus)
-                filter!(x -> x ≠ i, A_plus)
-            end
-        end
-        #A_plus = A_plus[R2_array .< ε_backward]
-        #A =  Array{Int64,1}()
-        #A = A_plus
-        ####################### CHECK TERMINATION CRITERION ####################
-        if length(A) != 0
+        ######################## FORWARD STEP ###########################
 
-          Φ3 = evaluate(vec(A),x,op)
-          a_tmp, ymd = Array{Float64,1}(),Array{Float64,1}()
-          a_tmp, ymd = regress(Φ3,y)
-          r2_accuracy = 1 - lack_of_fit(y,ymd)
-            if r2_accuracy >= accuracy
+        push!(A,i)
+        Φ = evaluate(A,x,op)
+        a_hat, ymod = regress(Φ,y)
+        @show R2_new = 1 - lack_of_fit(y,ymod)
+        # if R2_new is significantlz better, then push to the basis
+        if abs(R2_new - R2) >= ε_forward
+            R2 = R2_new
+            # do nothing
+        else
+        filter!(x -> x != i, A)
+        end
+        @show A_plus = A
+        display("End of Forward step")
+        #R2_new >= R2 ? R2 = R2_new : nothing
+        # R2 <= ε_forward ? filter!(x -> x != i, A) : nothing
+        #A_plus = A
+        ######################### Backward STEP #########################
+        R2_array = Float64[]
+        for b in A_plus[1:end-1]
+            Φ = evaluate(filter(x -> x ≠ b, A_plus),x,op)
+            a_tmp, ymod = regress(Φ,y)
+            @show r2 = 1 - lack_of_fit(y,ymod)
+            push!(R2_array,r2)
+        end
+        #Here remove those Bases which do not cause significant change in R2 in backward setup
+        s::Int64 = 1
+        for r2 in R2_array
+            if abs(R2 - r2) < ε_backward
+                filter!(x -> x ≠ A_plus[s], A_plus)
+                s -= 1
+            end
+            s += 1
+        end
+        @show A = A_plus
+        display("End of Backward Step")
+
+        ################ CHECK TERMINATION CRITERION ###################
+        if length(A) != 0
+          Φ = evaluate(A,x,op)
+          a_tmp, ymod = regress(Φ,y)
+          @show R2 = 1 - lack_of_fit(y,ymod)
+          print("\n")
+            # if r2 >= accuracy || R2 >= accuracy
+            if R2 >= accuracy
                 println("Accuracy achieved. Breaking.\n")
-                return A
+                return a_tmp, A
             end
         end
-        ########################################################################
-    end
+        #################################################################
+        end
     error("Algorithm terminated early; perhaps a pathological problem was provided.")
 end
 
@@ -73,7 +86,6 @@ function orthosparseMulti(y::Array{Float64,1},x::Matrix{Float64},name::String,p_
     end
     mop = MultiOrthoPoly(ops,p_max)
     ############################################################################
-
     A = Array{Int64}(undef, 0, numu)
     A_plus = Array{Int64}(undef, 0, numu)
     #A_minus = Array{Int64}(undef, 0, numu)
@@ -81,12 +93,15 @@ function orthosparseMulti(y::Array{Float64,1},x::Matrix{Float64},name::String,p_
     #A_plus = Vector{Vector{Int64}}()
     #push!(A, vec(zeros(1,numu)))
     #push!(A_plus, vec(zeros(1,numu)))
+    #display(A)
     A = vcat(A,zeros(Int64,1,numu))
     #A_plus = vcat(A,zeros(Int64,1,numu))
     #A_minus = vcat(A,zeros(Int64,1,numu))
-
     for i in p_index
         i >= p_max && break
+        #print("\n ##### \n")
+        #display(A)
+        #print("\n ##### \n")
         #if size(A)[1] == 0
         #    A = vcat(A,zeros(Int64,1,numu))
         #end
