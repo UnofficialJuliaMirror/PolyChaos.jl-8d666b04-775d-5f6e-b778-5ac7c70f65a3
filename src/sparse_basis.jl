@@ -1,4 +1,5 @@
 export orthosparse, orthosparseMulti
+using LinearAlgebra
 
 function regress(M,y)
   c = pinv(M)*y
@@ -6,141 +7,190 @@ function regress(M,y)
 end
 
 function lack_of_fit(y::Array{Float64,1},ymod::Array{Float64,1})
-    sum(δy^2 for δy in y - ymod) / sum(δy^2 for δy in y .- mean(y))
+    lof = sum(δy^2 for δy in y - ymod) / sum(δy^2 for δy in y .- mean(y))
+    lof > 1 ? 1 : lof
 end
 
-function orthosparse(y::Array{Float64,1},x::Array{Float64,1},name::String,p_max::Int64;ε_forward::Float64,ε_backward::Float64,accuracy::Float64)
+function matrix_to_vector(a::Array{Int64,2})
+    return copy.(eachrow(a))
+end
+
+function vector_to_matrix(b::Array{Array{Int64,1},1})
+    return reduce(vcat, transpose.(b))
+end
+
+function orthosparse(y::Vector{Float64},x::Vector{Float64},name::String,p_max::Int64;ε_forward::Float64,ε_backward::Float64,accuracy::Float64)
     p_index = 1:p_max
     op = OrthoPoly(name,p_max)
     y_bar = mean(y)
-    A, A_plus = Array{Int64,1}(), Array{Int64,1}()
-    push!(A,0); push!(A_plus,0)
+    A, A_plus = [0], []
+    Φ = evaluate(A,x,op)
+    a_hat, ymod = regress(Φ,y)
+    R2 = 1 - lack_of_fit(y,ymod)
     for i in p_index
         i >= p_max && break
-        ############################# FORWARD STEP #############################
-        push!(A,i)
-        Φ1 = evaluate(vec(A),x,op)
-        a_tmp, ymod = Array{Float64,1}(),Array{Float64,1}()
-        a_hat, ymod = regress(Φ1,y)
-        R2 = 1 - lack_of_fit(y,ymod)
-        #R2 >= ε_forward ? push!(A_plus,i) : nothing
-        if R2 >= ε_forward
-            push!(A_plus,i)
-        end
-        #R2 >= ε_forward ? A_plus = filter(x -> x != i, A) : nothing
-        ########################### Backward STEP ##############################
-        if A_plus[end] == i
-            #Φ = evaluate(filter(x -> x ≠ b, A_plus),x,op)
-            Φ2 = evaluate(i,x,op)
-            a_tmp, ymd = Array{Float64,1}(),Array{Float64,1}()
-            a_tmp, ymd = regress(Φ2,y)
-            r2::Float64 = 0.0
-            r2 = 1 - lack_of_fit(y,ymd)
-            if r2 <= ε_backward
-                #A_plus = filter(x -> x != i, A)
-                filter!(x -> x != i, A)
-                #pop!(A_plus)
-                filter!(x -> x ≠ i, A_plus)
-            end
-        end
-        #A_plus = A_plus[R2_array .< ε_backward]
-        #A =  Array{Int64,1}()
-        #A = A_plus
-        ####################### CHECK TERMINATION CRITERION ####################
-        if length(A) != 0
+        ######################## FORWARD STEP ###########################
 
-          Φ3 = evaluate(vec(A),x,op)
-          a_tmp, ymd = Array{Float64,1}(),Array{Float64,1}()
-          a_tmp, ymd = regress(Φ3,y)
-          r2_accuracy = 1 - lack_of_fit(y,ymd)
-            if r2_accuracy >= accuracy
+        push!(A,i)
+        Φ = evaluate(A,x,op)
+        a_hat, ymod = regress(Φ,y)
+        @show R2_new = 1 - lack_of_fit(y,ymod)
+        # if R2_new is significantlz better, then push to the basis
+        if abs(R2_new - R2) >= ε_forward
+            R2 = R2_new
+            # do nothing
+        elseif R2_new ==1.0
+            R2 = R2_new ## to check if R2 is already 1.0
+        else
+            filter!(x -> x != i, A)
+        end
+        @show A_plus = A
+        display("End of Forward step")
+
+        ######################### Backward STEP #########################
+
+        if A_plus[end] == i
+            display("bwd step")
+            for b in A_plus[1:end-1]
+                Φ = evaluate(filter(x -> x ≠ b, A_plus),x,op)
+                a_tmp, ymod = regress(Φ,y)
+                @show r2 = 1 - lack_of_fit(y,ymod)
+                if abs(R2 - r2) < ε_backward
+                    display("filter in bwd step")
+                    filter!(x -> x ≠ b, A_plus)
+                end
+            end
+            A = A_plus
+            display(A)
+            display("End of Backward Step")
+        end
+
+        ################ CHECK TERMINATION CRITERION ###################
+        if length(A) != 0
+          Φ = evaluate(A,x,op)
+          a_tmp, ymod = regress(Φ,y)
+          @show R2_accuracy = 1 - lack_of_fit(y,ymod)
+          print("\n")
+            if R2_accuracy >= accuracy
                 println("Accuracy achieved. Breaking.\n")
-                return A
+                return a_tmp, A
             end
         end
-        ########################################################################
+        #################################################################
     end
     error("Algorithm terminated early; perhaps a pathological problem was provided.")
 end
 
-function orthosparseMulti(y::Array{Float64,1},x::Matrix{Float64},name::String,p_max::Int64,numu::Int64,ε_forward::Float64,ε_backward::Float64,accuracy::Float64)
+function orthosparseMulti(y::Array{Float64,1},x::Matrix{Float64},name::Array{String,1},p_max::Int64,numu::Int64,ε_forward::Float64,ε_backward::Float64,accuracy::Float64)
     p_index = 1:p_max
     j_index = 1:numu
-    ############### To generate Multivariate ortho Polynomials #################
+
+    ####### Generates Multivariate ortho Polynomials
     ops = OrthoPoly[]
-    for j = 1:numu
-        push!(ops,OrthoPoly("gaussian",p_max))
+    for j = 1:length(name)
+        push!(ops,OrthoPoly(name[j],p_max))
     end
-    mop = MultiOrthoPoly(ops,p_max)
-    ############################################################################
+    mop = MultiOrthoPoly(ops,p_max) # Multivariate Orthogonal Polynomials
 
-    A = Array{Int64}(undef, 0, numu)
-    A_plus = Array{Int64}(undef, 0, numu)
-    #A_minus = Array{Int64}(undef, 0, numu)
-    #A = Vector{Vector{Int64}}()
-    #A_plus = Vector{Vector{Int64}}()
-    #push!(A, vec(zeros(1,numu)))
-    #push!(A_plus, vec(zeros(1,numu)))
-    A = vcat(A,zeros(Int64,1,numu))
-    #A_plus = vcat(A,zeros(Int64,1,numu))
-    #A_minus = vcat(A,zeros(Int64,1,numu))
+    #####
+    A = Array{Array{Int64,1},1}();
+    A_plus = Array{Array{Int64,1},1}();
+    push!(A,vec(zeros(Int64,1,numu)));
+    A = vector_to_matrix(A);
+    R2 = 0.0;
+    #####
 
-    for i in p_index
-        i >= p_max && break
-        #if size(A)[1] == 0
-        #    A = vcat(A,zeros(Int64,1,numu))
-        #end
+    Φ0 = evaluate(A,x,mop)
+    Φ0 = transpose(Φ0)
+    a_tmp,ymod = regress(Φ0,y)
+    @show R2 = 1 - lack_of_fit(y,ymod)
+    A = matrix_to_vector(A);
+    for p in p_index
+        p >= p_max && break
+
         ########################### FORWARD STEP ###############################
-        for j in 1:numu
-            I_p = calculateMultiIndices_interaction(numu,p_max,j,i)
 
-            for k in I_p
-                k = k'
-                A = vcat(A,k)
-                #push!(A, vec(k))
-                #A_temp = transpose(hcat(A...))
-                #Φ1 = evaluate(A_temp,x,mop)
-                Φ1 = evaluate(A,x,mop)
-                Φ1 = transpose(Φ1)
-                a_hat, ymod = regress(Φ1,y)
-                R2 = 1 - lack_of_fit(y,ymod)
-                if R2 >= ε_forward
-                    #A_plus  = vcat(A_plus,k)
-                    A_plus  = vcat(A_plus,k)
-                    #push!(A_plus, vec(k))
-                end
+        ##### Generating the set multiindecies of pth order
+        I_p = Array{Array{Int64,1},1}();
+        for j in j_index
+            indices_set = calculateMultiIndices_interaction(numu,p_max,j,p)
+            for k in indices_set
+                push!(I_p,Vector(k))
             end
         end
+        display("I_p set")
+        display(I_p)
+        println("\n")
+        ############
 
-        ########################## Backward STEP ###############################
-        R2_array = Float64[]
-        #A_plus = A_plus[[sum(x) == i for x in eachrow(A_plus)],:]
-        A_temp = Array{Int64}(undef,0,numu)
-        A_temp = A_plus[[sum(x) == i for x in eachrow(A_plus)],:]
-        A_plus = A_plus[[sum(x) < i for x in eachrow(A_plus)],:]
-        #for row in eachrow(A_plus)
-        for row in eachrow(A_temp)
-            row = Vector(row)
-            Φ2 = evaluate(row,x,mop)
-            #Φ = transpose(Φ)
-            a_tmp, ymod = regress(Φ2,y)
-            r2 = 1 - lack_of_fit(y,ymod)
-            push!(R2_array,r2)
+        for j in I_p
+            push!(A,Vector(j))
+            A = vector_to_matrix(A);
+            #display(A)
+            Φ1 = evaluate(A,x,mop)
+            Φ1 = transpose(Φ1)
+            a_hat, ymod = regress(Φ1,y)
+            @show R2_new = 1 - lack_of_fit(y,ymod)
+            A = matrix_to_vector(A);
+
+            # if R2_new is significantlz better, then push to the basis
+            if R2_new == 1.0
+                R2 = R2_new
+                # do nothing
+            elseif abs(R2_new - R2) > ε_forward
+                R2 = R2_new
+                # do nothing
+            else
+                display("filter in fwd step")
+                pop!(A)
+            end
         end
-        #A_plus = A_plus[R2_array .< ε_backward,:]
-        A_temp = A_temp[R2_array .< ε_backward,:]
-        A_plus = vcat(A_plus,A_temp)
-        A = vcat(A,A_plus)
+        # A_plus = A;
         display(A)
+        display("End of Forward step")
+        println("\n")
+        ########################## Backward STEP ###############################
+
+        @show A_a = A[[sum(x) == p for x in A]]; #set of pth order basis
+        @show A_b = A[[sum(x) < p for x in A]]; #set of all basis of order less than p
+        if A_a != []
+            for s in A_b
+                A_plus = A[[x != s for x in A]];
+                @show A_plus = vector_to_matrix(A_plus);
+                Φ2 = evaluate(A_plus,x,mop);
+                Φ2 = transpose(Φ2);
+                a_tmp, ymod = regress(Φ2,y);
+                r2_new = 0.0;
+                @show r2 = 1 - lack_of_fit(y,ymod);
+                A_plus = matrix_to_vector(A_plus);
+                if abs(R2 - r2) < ε_backward || r2 == 1.0
+                    # display("filter in bwd step")
+                    A = A_plus;
+                else
+                    push!(A_plus,Vector(s))
+                end
+            end
+            A = A_plus
+        end
+        A = vector_to_matrix(A);
+        display("A")
+        display(A)
+        display("End of Backward step")
+        println("\n")
+
         ##################### CHECK TERMINATION CRITERION ######################
+
         if size(A)[1]  != 0
+            display("check termination")
             Φ3 = evaluate(A,x,mop)
             Φ3 = transpose(Φ3)
             a_tmp, ymd = regress(Φ3,y)
-            r2_accuracy = 1 - lack_of_fit(y,ymd)
+            @show r2_accuracy = 1 - lack_of_fit(y,ymd)
+            println("\n")
+            A = matrix_to_vector(A);
             if r2_accuracy >= accuracy
                 println("Accuracy achieved. Breaking.\n")
-                return A
+                return a_tmp,A
             end
         end
         ########################################################################
