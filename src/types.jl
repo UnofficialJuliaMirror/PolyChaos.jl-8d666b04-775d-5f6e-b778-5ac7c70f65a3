@@ -1,4 +1,4 @@
-export  OrthoPoly,
+#export  OrthoPoly,
         MultiOrthoPoly,
         Quad,
         OrthoPolyQ,
