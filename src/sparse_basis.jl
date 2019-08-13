@@ -1,5 +1,6 @@
 export orthosparse, orthosparseMulti
 using LinearAlgebra
+include("multiIndices.jl")
 
 function regress(M,y)
   c = pinv(M)*y
@@ -69,9 +70,9 @@ function orthosparse(y::Vector{Float64},x::Vector{Float64},name::String,p_max::I
         if length(A) != 0
           Φ3 = evaluate(A,x,op)
           a_tmp, ymod = regress(Φ3,y)
-          @show R2_accuracy = 1 - lack_of_fit(y,ymod)
+          @show R2 = 1 - lack_of_fit(y,ymod)
           print("\n")
-            if R2_accuracy >= accuracy
+            if R2 >= accuracy
                 println("Accuracy achieved. Breaking.\n")
                 return a_tmp, A
             end
@@ -185,10 +186,10 @@ function orthosparseMulti(y::Array{Float64,1},x::Matrix{Float64},name::Array{Str
             Φ3 = evaluate(A,x,mop)
             Φ3 = transpose(Φ3)
             a_tmp, ymd = regress(Φ3,y)
-            @show r2_accuracy = 1 - lack_of_fit(y,ymd)
+            @show R2 = 1 - lack_of_fit(y,ymd)
             println("\n")
             A = matrix_to_vector(A);
-            if r2_accuracy >= accuracy
+            if R2 >= accuracy
                 println("Accuracy achieved. Breaking.\n")
                 return a_tmp,A
             end
