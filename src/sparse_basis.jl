@@ -68,7 +68,7 @@ function orthosparse(y::Vector{Float64},x::Vector{Float64},name::String,p_max::I
         if length(A) != 0
           Φ3 = evaluate(A,x,op)
           a_tmp, ymod = regress(Φ3,y)
-          @show R2_accuracy = 1 - lack_of_fit(y,ymod)
+          @show R2 = 1 - lack_of_fit(y,ymod)
           print("\n")
             if R2 >= accuracy
                 println("Accuracy achieved. Breaking.\n")
