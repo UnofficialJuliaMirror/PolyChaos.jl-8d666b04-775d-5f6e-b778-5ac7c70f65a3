@@ -18,7 +18,7 @@ function vector_to_matrix(b::Array{Array{Int64,1},1})
     return reduce(vcat, transpose.(b))
 end
 
-function orthosparse(y::Vector{Float64},x::Vector{Float64},name::String,p_max::Int64;ε_forward::Float64,ε_backward::Float64,accuracy::Float64)
+function orthosparse(y::Vector{Float64},x::Vector{Float64},name::String,p_max::Int64,numu::Int64;ε_forward::Float64=1e-12 , ε_backward::Float64=1e-12 , accuracy::Float64=1.0-1e-15)
     p_index = 1:p_max
     op = OrthoPoly(name,p_max)
     y_bar = mean(y)
@@ -26,54 +26,49 @@ function orthosparse(y::Vector{Float64},x::Vector{Float64},name::String,p_max::I
     Φ0 = evaluate(A,x,op)
     a_hat, ymod = regress(Φ0,y)
     R2 = 1 - lack_of_fit(y,ymod)
-    for i in p_index
-        i >= p_max && break
+    for p in p_index
+        p >= p_max && break
 
         ##### FORWARD STEP
-        display("stat of fwd step")
-        push!(A,i)
+        push!(A,p)
         Φ1 = evaluate(A,x,op)
         a_hat, ymod = regress(Φ1,y)
-        @show R2_new = 1 - lack_of_fit(y,ymod)
+        R2_new = 1 - lack_of_fit(y,ymod)
         # if R2_new is significantly better, then push to the basis
         if abs(R2_new - R2) >= ε_forward
-            R2 = R2_new
-            # do nothing
+            R2 = R2_new # do nothing
         elseif R2_new ==1.0
             R2 = R2_new ## to check if R2 is already 1.0
         else
-            filter!(x -> x != i, A)
+            filter!(x -> x != p, A)
         end
-        @show A_plus = A
-        display("End of Forward step")
-
+        A_plus = A
+       
         ##### Backward STEP
-        if A_plus[end] == i
-            display("bwd step")
-            for b in A_plus[1:end-1]
-                Φ2 = evaluate(filter(x -> x ≠ b, A_plus),x,op)
-                a_tmp, ymod = regress(Φ2,y)
-                @show r2 = 1 - lack_of_fit(y,ymod)
-                if abs(R2 - r2) < ε_backward
-                    display("filter in bwd step")
-                    filter!(x -> x ≠ b, A_plus)
-                end
+        if A_plus[end] == p
+          for b in A_plus[1:end-1]
+            Φ2 = evaluate(filter(x -> x ≠ b, A_plus),x,op)
+            a_tmp, ymod = regress(Φ2,y)
+            r2 = 1 - lack_of_fit(y,ymod)
+            if abs(R2 - r2) < ε_backward
+              filter!(x -> x ≠ b, A_plus)
             end
-            A = A_plus
-            display(A)
-            display("End of Backward Step")
+          end
+          A = A_plus
         end
 
         ##### CHECK TERMINATION CRITERION
         if length(A) != 0
           Φ3 = evaluate(A,x,op)
           a_tmp, ymod = regress(Φ3,y)
-          @show R2 = 1 - lack_of_fit(y,ymod)
-          print("\n")
-            if R2 >= accuracy
-                println("Accuracy achieved. Breaking.\n")
-                return a_tmp, A
-            end
+          R2 = 1 - lack_of_fit(y,ymod)
+          if R2 >= accuracy
+            println("R2: ", R2)
+            println("coeff: ", a_tmp)
+            println("indices: ", A)
+            println("Accuracy achieved. Breaking.\n")
+            return a_tmp, A
+          end
         end
         #####
     end
