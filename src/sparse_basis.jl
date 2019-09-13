@@ -43,7 +43,7 @@ function orthosparse(y::Vector{Float64},x::Vector{Float64},name::String,p_max::I
             filter!(x -> x != p, A)
         end
         A_plus = A
-       
+
         ##### Backward STEP
         if A_plus[end] == p
           for b in A_plus[1:end-1]
