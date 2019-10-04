@@ -70,7 +70,7 @@ end
 #     inds = calculateMultiIndices(nξ,deg)
 #     get_interaction(inds,j,p)
 # end
-
+#
 # function get_interaction(inds::Matrix{Int},j::Int,p::Int)
 #     j < 0 && throw(error("interaction order must be non-negative"))
 #     j > size(inds,2) && throw(error("interaction order cannot be greater than number of uncertainties"))
